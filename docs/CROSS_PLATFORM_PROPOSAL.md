@@ -1,158 +1,120 @@
 # Independent Windows/macOS PDF presenter: research and agent handoff
 
-Research date: 2026-10-24. Status: **proposal, not an implementation**.
+Research updated: 2026-10-24. **Proposal only; no cross-platform implementation or
+framework benchmark has been built.** The existing GPL Mac wrapper is unchanged.
 
-The existing repository remains a GPL-3.0-or-later Mac wrapper. The proposed app
-should be developed independently in a new repository. **PageCue** is a suggested
-name, not an approved name or a checked trademark/domain. Other brainstormed names
-were Lectern, Decklight, Talkleaf, and Slidecue.
+## 1. Decision and constraints
 
-## Updated priorities: minimalist UI and native Rust options
+**Recommend PySide6 + Qt Widgets with custom painting, Qt PDF for rendering, and
+pypdf for PDF attachment/annotation metadata that Qt PDF does not expose.**
+The same GUI architecture could be written with C++ Qt if avoiding the Python
+runtime becomes a hard requirement. Language preference is currently neutral.
 
-The maintainer subsequently clarified that Présentation's minimalist interface is
-the preferred design direction and questioned the weight of a browser-based stack.
-They also asked to consider Rust. **This changes the weighting of the original
-Electron recommendation below. No new stack has been selected or prototyped.**
+The user likes Présentation's simple interface: slides, a timer, notes and a compact
+thumbnail strip. Preserve that visual restraint with an original implementation.
+Do not interpret “Qt Widgets” as a request for toolbars, ribbons, menus everywhere,
+or a generic document viewer. Two custom-painted views can provide the desired UI.
 
-Current qualitative ranking for this scope:
+**Tauri and Electron are ruled out.** Earlier browser-stack recommendations have
+been removed from this handoff. Rust is a candidate, not a user preference.
 
-| Rank | Stack | Reason and main tradeoff |
+Current ranking:
+
+| Rank | Candidate | Assessment for this application |
 |---|---|---|
-| 1 | PySide6 Widgets + Qt PDF + pypdf | Lowest implementation risk for a small desktop presenter; mature window/widget tools. Ships Python/Qt and requires the applicable LGPL obligations. |
-| 2 | Rust + egui/eframe + pdfium-render | Strong native Rust candidate for a compact utility UI, without a Python interpreter or browser runtime. More integration, PDFium packaging and platform QA work. |
-| 3 | Rust + Iced + pdfium-render | Declarative Rust UI with a structured state/update model; worth considering for a more elaborate application. My judgment is that egui is the simpler initial fit for this custom presenter canvas. |
-| 4 | Tauri + PDF.js | Rust host and web UI using the OS webview; an option if web technologies are desired, but adds Rust/JS boundaries and differing browser engines. |
-| 5 | Electron + PDF.js | Can look just as minimal, but its bundled runtime is less aligned with the clarified footprint preference. |
+| 1 | PySide6 / Qt Widgets | Closest overall match to the existing drawing, text, input, windows and optional multimedia workload; smallest integration risk in my judgment. |
+| 2 | Rust / egui + eframe / pdfium-render | Credible fit for the custom-painted core UI; active project with actual adopters. More PDF library, fonts, window behavior and optional multimedia integration to own. |
+| 3 | Rust / Iced / pdfium-render | Active and viable; supports interactive canvas drawing. Its declarative structure is not a decisive advantage for this particular two-canvas application. |
 
-This is a ranking of project fit, not a benchmark of binary size, speed or memory.
-The first two are the actual shortlist: **Qt for the quickest dependable release;
-egui for a native Rust engineering direction.** A Rust implementation is not
-automatically smaller or more efficient; its renderer, feature selection, cache
-and repaint scheduling matter. Native egui windows are not AppKit/WinUI widgets;
-the controls are drawn by egui, so appearance needs deliberate styling.
+This ranks engineering fit, not measured speed, memory, package size, or aesthetic
+quality. Qt can reproduce the minimalist appearance. egui may be attractive for a
+restricted slide/notes/timer tool, but neither toolkit choice gives complete PDF
+multimedia compatibility automatically. All three need a prototype on both OSes.
 
-### Concrete Rust design to prototype
+**PageCue** is a name suggestion only; availability and trademark were not checked.
+The future application should be independently authored in a separate repository
+under a license chosen by its maintainer. MIT is proposed, subject to dependency
+obligations; this repository remains GPL-3.0-or-later.
 
-- Use `eframe` for desktop lifecycle and `egui` for a presenter viewport plus a
-  separate audience viewport. Native eframe supports multiple viewports. Prefer
-  a deferred audience viewport so the presenter's timer does not force an audience
-  repaint. Test actual monitor placement/fullscreen/DPI behavior on both OSes.
-  [egui viewport documentation](https://docs.rs/egui/latest/egui/viewport/index.html)
-- Use `pdfium-render` for PDF pages, attachment/annotation inspection and rendered
-  bitmaps. It is a Rust wrapper around the C++ PDFium engine, not a pure-Rust PDF
-  implementation. It does not bundle PDFium: ship a pinned compatible DLL/dylib
-  with each release and load it from the app resources, not an arbitrary working
-  directory. [pdfium-render project](https://github.com/ajrcarey/pdfium-render)
-- Give one worker ownership of PDFium operations initially and communicate using
-  bounded requests/results. Audit the selected bindings' threading requirements;
-  do not assume independent PDF documents make native calls thread-safe.
-- Render on page/scale changes, cache a bounded set of bitmaps/textures, and reuse
-  them during UI redraws. Request repaint for input, completed rendering and timer
-  ticks; do not rerasterize a PDF every frame or run a perpetual animation loop.
-- Read `.pdfpc` using `serde_json` and newly authored format-validation code. Use
-  `std::time::Instant` for the timer. Add a native file-dialog integration only as
-  needed. Start without a webview, scripting runtime, or large async framework.
-- Bundle appropriately licensed CJK UI fonts or a tested font-loading solution:
-  PDF rendering and Chinese speaker-note rendering are separate font problems.
-- Before expanding features, prove PDF rendering, Chinese notes, two windows,
-  reload cancellation and a packaged application on Mac and Windows. Camera,
-  movies and LaTeX animations remain separate milestones.
+## 2. What the Présentation code actually does
 
-egui and pdfium-render offer permissive licensing choices; preserve all selected
-crate, font and bundled PDFium dependency notices. This does not authorize copying
-the old GPL application. See [egui's MIT license](https://github.com/emilk/egui/blob/main/LICENSE-MIT)
-and [pdfium-render's license](https://github.com/ajrcarey/pdfium-render/blob/master/LICENSE.md).
-For the alternative, [Iced](https://github.com/iced-rs/iced) provides an Elm-inspired
-cross-platform Rust GUI model.
+Inspected installed upstream **Présentation 3.4.0**, `Contents/MacOS/presentation.py`,
+2,592 lines. SHA-256:
+`9924ca533b96cdc21e56dbb7e3e6d8e87f5687b95d7d4f92133da32e75e63e5c`.
+The following are observations from that version, not inferred from screenshots.
+Line references are to that upstream script, which is not copied into this repo.
 
-**Handoff adjustment:** Sections 5, 7 and 11 below describe the earlier Electron
-design and are now a comparison/reference architecture, not an instruction to
-implement Electron. Confirm Qt versus native Rust with the maintainer before
-starting that prototype. Keep the existing functional requirements, independent
-implementation boundaries and platform acceptance tests whichever stack is chosen.
+| Upstream location | Observed behavior | Implication for framework choice |
+|---|---|---|
+| `PresenterView`, lines 1427–2249 | One custom NSView handles most layout, drawing and interaction. | This is chiefly a canvas UI, not a form-heavy application. egui is more plausible than a generic widget comparison suggests. Qt custom painting is equally applicable. |
+| `PresenterView.drawRect_`, around 1490–1725 | Manually positions current/next slides, timer, page number, notes and help. | An original `QWidget.paintEvent` + QPainter design can retain the restrained layout; no QML or web UI is required. |
+| Notes drawing, around 1657–1673 | Concatenates note strings and draws them in a rectangle with font sizing. | Notes are displayed text, not a rich-text editor. Complex editing features are not a core requirement; CJK font layout still matters. |
+| `draw_miniatures`, around 1443; thumbnail generation around 1019 | Prepares thumbnails, scrolls a strip and previews a hovered page. | All candidates can do this. Cache/lazy generation policy matters more than language. |
+| `SlideView.drawRect_`, lines 1116–1165 | Fits the PDF page, applies transforms, draws ink and a laser/spotlight overlay. | QPainter/QTransform/QPainterPath offer a close conceptual match; egui/Iced can compose textures and geometry. |
+| Input methods, roughly 1755–2249 | Keyboard commands, clickers, zoom, hit testing, scroll, drawing, selection and dragging. | A visually sparse UI still has substantial interaction state and coordinate handling. Rewrite this state machine explicitly. |
+| Window creation/fullscreen, lines 2405–2557 | Two windows, keyboard routing, screen choice/swap and fullscreen changes. | Native window behavior is a release gate, not something to infer from successful single-window rendering. |
+| `MovieView`, lines 1212–1290; `VideoView`, 1294–1413 | Movie playback/seek and a camera overlay backed by AVFoundation layers. | Qt Multimedia provides relevant cross-platform primitives. egui/Iced do not themselves replace AVFoundation. Full feature scope strengthens the Qt recommendation. |
+| Animation handling, around 664–963 | Interprets specific embedded PDF animation/media structures using Apple PDF/JS helpers. | A PDF bitmap renderer does not automatically reproduce these semantics. Separate milestone for every candidate. |
+| `Refresher`, lines 2570–2590 | A one-second timer invalidates presenter views; input triggers other redraws. | The app is not inherently a continuous high-frame-rate scene. Cache PDF images and repaint only when needed. |
 
-## 1. Recommendation and decision context
+The direct API mapping favoring Qt is **NSView custom drawing → QWidget/QPainter,
+NSAffineTransform → QTransform, NSBezierPath → QPainterPath**, with Qt's screen,
+event and multimedia facilities supporting the surrounding application.
+QPainter supports text, images, paths and transforms; Qt PDF provides queued
+page-rendering requests; Qt Multimedia supports camera capture sessions.
+These are capability matches, not tested parity. [S29–S31]
 
-**Recommended starting stack: Electron + TypeScript + React + PDF.js, packaged
-with Electron Forge.** Use an independently authored MIT-licensed application,
-subject to the maintainer choosing that license. Keep the app offline and local.
-No Python service, web server, account, or cloud backend is needed.
+Iced has an interactive 2D canvas API, so it is not disqualified for custom drawing.
+I rank it below egui here because the declarative widget architecture adds no clear
+project-specific benefit over a compact canvas-oriented implementation; this is an
+engineering judgment, not evidence that Iced is slower or incapable. [S32]
 
-This recommendation is an engineering judgment for these requirements:
+The existing wrapper's parser, hooks and installer are a different codebase. It
+passed 51 local tests and a temporary signed-app/runtime check during packaging.
+Those results do not establish that any proposed replacement works on Windows.
 
-- A research-group PDF presenter on Windows and macOS, installed by a coding agent
-  from a GitHub link or downloaded as an application.
-- Reliable separation of presenter notes from the projected audience view.
-- PDFs produced by Typst/LaTeX, Unicode notes, overlays, a timer, and easy reload.
-- Independent implementation inspired by the presentation workflow, without
-  carrying Présentation's GPL implementation into the new application.
-- Fast iteration by agents and maintainers, with testable behavior and reproducible
-  platform-specific packages. Minimal binary size is desirable, not a stated hard
-  requirement.
+## 3. Maintenance, adoption and growth evidence
 
-The licensing change removes the main reason to retain Python: reusing the old
-wrapper code is no longer the plan. Electron provides native window/display APIs
-and bundles Chromium and Node; PDF.js provides a controllable PDF rendering and
-inspection API. Electron is MIT and PDF.js Apache-2.0. These are licenses of the
-main components, **not a claim that every bundled/transitive component is MIT**.
-Preserve their notices and audit the actual release dependency tree. [S3–S7]
+Checked official release pages, GitHub repository metadata and default-branch
+commits on 2026-10-24. **All three are actively maintained.**
 
-Electron's costs are a larger runtime and ongoing Chromium/Electron updates.
-No benchmark was run here, so there is no measured download size, memory advantage,
-rendering speed, or guarantee of cross-platform visual identity. Its consistent
-browser engine reduces one source of platform variation; fonts, GPU drivers,
-display scaling, and OS window management still differ.
+| Project | Release evidence | Development/adoption evidence | Interpretation |
+|---|---|---|---|
+| Qt / PySide6 | Qt for Python 6.12 announcement dated Oct 9, 2026 | PySide mirror contains fixes dated Oct 23, 2026; official Qt release/development infrastructure | Active, established option; its GitHub mirror's star count is not comparable to GitHub-native projects. |
+| egui | 0.37.0 released Oct 15, 2026; 0.36.2 Sept 8; 0.36.1 Aug 7; 0.36.0 Aug 5 | Default-branch fixes Oct 21; 31,733 GitHub stars at query time; project documents Rerun sponsorship and use | Frequent releases, live maintenance and an actual adopter. APIs remain in flux. |
+| Iced | Latest GitHub release observed: 0.14.0, Dec 7, 2025 | Default-branch text/font fixes Oct 20–21, 2026; 31,828 stars; COSMIC's libcosmic is based on Iced | Active despite slower tagged releases. An older release date alone does not imply abandonment. |
 
-**Runner-up: PySide6 Widgets + Qt PDF + pypdf.** It is a good native Python design
-if Python is a maintainer preference. It does not inherently force the new app
-under GPL: appropriate Qt/PySide modules offer LGPL options. However, module-level
-license selection and redistribution/relinking obligations must be handled. Do
-not repeat the inaccurate claim that all Qt PDF releases are GPL-only. [S11–S14]
+Sources: [Qt release announcement](https://www.qt.io/blog/qt-for-python-release-6.12-is-here),
+[PySide commits](https://github.com/pyside/pyside-setup/commits/dev/),
+[egui releases](https://github.com/emilk/egui/releases),
+[egui commits](https://github.com/emilk/egui/commits/main/),
+[Iced releases](https://github.com/iced-rs/iced/releases),
+[Iced commits](https://github.com/iced-rs/iced/commits/master/),
+[egui's project statement](https://github.com/emilk/egui), and
+[libcosmic](https://github.com/pop-os/libcosmic).
 
-**Choose Tauri + PDF.js instead** if measured package size becomes decisive and
-the team accepts Rust build tooling plus separate WebKit/WebView2 validation.
-Do not switch on an assumed size or performance saving before measuring. [S15]
+The query used the GitHub `/repos/{owner}/{repo}`, `/releases?per_page=8` and
+`/commits?per_page=4` endpoints for `emilk/egui`, `iced-rs/iced`, and
+`pyside/pyside-setup`. Recent commit subjects included real fixes, not only release
+markers: egui's stale debug-ID entries, Iced's font preservation/text selection,
+and PySide converter lookup handling.
 
-## 2. What was inspected and what is known
+**Popularity growth was not measured.** These are point-in-time counts, not active
+user counts or a growth curve. No historical star/download series was collected.
+Do not claim that egui or Iced is growing faster than Qt from these numbers. Rerun
+and COSMIC establish adoption, not proof of our exact Windows/macOS requirements.
 
-### Existing working application
+Activity also has costs: egui explicitly says interfaces are still changing, and
+0.37 lists breaking changes involving fonts, screenshot callbacks and ID APIs.
+Pin versions and use matching documentation. For Iced, verify that needed fixes
+are in a released version instead of silently building the application against
+an unpinned development branch. [S33]
 
-The local app is a wrapper around **Présentation 3.4.0**, not a modified build of
-the GTK pdfpc project. Inspection found:
+The maintainer is comfortable with some immaturity for a small application. Thus
+maturity is not a veto against egui/Iced. The remaining deciding work is concrete:
+PDF rendering, readable Chinese notes, dual-display behavior and packaged launch.
 
-- `wrapper.py` locates Présentation and executes an adapted version of its script.
-- `upstream_adapter.py` checks the upstream source structure and installs notes,
-  reload, and Finder-opening hooks in memory.
-- `pdfpc_notes.py` parses JSON and selects a notes source using standard Python.
-- `presentation_pdfpc.py` extracts PDF attachments using Apple Quartz/CoreGraphics.
-- Upstream uses AppKit, Foundation, Quartz, WebKit, AVFoundation, JavaScriptCore,
-  and other Apple framework bindings. Python does not make those frameworks
-  available on Windows.
-- The existing local app uses `/usr/bin/python3` 3.9.6. The downloaded 3.4.0 package
-  has Python 3.8/3.9 PyObjC directories and declares Intel/Apple Silicon targets.
-  This is package inspection, not proof of operation on every Mac.
-
-The upstream 3.4.0 package was downloaded from its official versioned URL. Its
-SHA-256, package signature, extracted app signature, adapter compatibility, and
-framework imports passed on the research Mac. A new wrapper was built and checked
-in a temporary directory. Existing installed apps were not replaced. The local
-suite passes 51 tests, including native PDF extraction and installer failure cases.
-These checks do not establish dual-monitor, camera, or Windows behavior.
-
-The original project's published features include separate presenter/audience
-views, a timer, notes, drawing, camera inset, media, links, and animation support.
-That broad feature list is useful for scope planning; it is not a requirement to
-replicate every feature in the first release. [S1]
-
-### Evidence limits
-
-This survey inspected documentation, package metadata, and the existing app. It
-did **not** build Electron, Tauri, or Qt prototypes; test a Windows machine; measure
-performance; inspect every dependency license; check name availability; or perform
-a formal legal clean-room audit. The recommendation must pass the initial prototype
-gate below before the team commits to the complete application.
-
-## 3. Independent implementation and licensing boundaries
+## 4. Independent implementation and licensing boundaries
 
 Présentation is GPL-3.0-or-later. Keeping and distributing the existing wrapper
 under GPL is compatible with research-group sharing; GPL is not a license fee.
@@ -184,150 +146,73 @@ whether source expression was copied.
 LGPL and GPL are different choices. An MIT application can use eligible LGPL
 libraries while fulfilling their conditions. Qt specifically documents notices,
 corresponding library source, and replacement/relinking requirements; check every
-selected module and packaged build. [S12–S13] The recommended Electron route avoids
-choosing Qt's LGPL route by default; it does not remove third-party obligations.
+selected module and packaged build. [S12–S13] Qt is recommended here on technical grounds; fulfill its applicable LGPL obligations
+if that route is selected. Choosing a permissive GUI library instead does not remove
+its dependency and asset obligations.
 
-## 4. Framework comparison
+## 5. Recommended minimal Qt architecture
 
-The judgments below are qualitative, not scored benchmarks.
+Use **two custom QWidget views**, one shared session/controller, and a small
+PDF-service boundary. Avoid a browser engine, QML, a plugin architecture and a
+large application framework for the first version.
 
-| Candidate | Useful strengths | Costs and uncertainties | Decision for this project |
-|---|---|---|---|
-| Electron + TypeScript/React + PDF.js | Native multi-window/display APIs; one bundled Chromium generation; PDF rendering, attachments and annotations through one JS library; common UI tooling | Larger shipped runtime; IPC boundaries and updates need maintenance; rendering fidelity and fullscreen still need measurement | **First choice** for independent development and straightforward main-component licenses |
-| PySide6 Widgets + Qt PDF + pypdf | Python; native widgets; Qt's queued PDF rendering; pypdf attachment access | LGPL/module audit; Python/native packaging; PDF rendering and metadata use two libraries | **Best Python alternative**; choose if Python matters more than a mostly permissive main stack |
-| Tauri 2 + TypeScript/React + PDF.js | Native desktop windows; no bundled Chromium; similar frontend design | Rust toolchain; Windows WebView2 versus macOS WebKit; more runtime variability to test | **Size-focused alternative**, conditional on prototype results |
-| Electron + built-in Chromium PDF viewer | Little initial PDF-viewer setup | Presenter overlays, exact page state, notes extraction and synchronized rendering need APIs the stock viewer UI does not provide as a stable app contract | Use explicit PDF.js integration instead of driving the built-in viewer |
-| Qt/PySide + pypdfium2 | Direct PDFium access; broadly packaged Python bindings | More custom rendering/UI plumbing; PDFium lifetime/threading rules; still Qt licensing for UI | Useful fallback if Qt PDF lacks a needed feature, not a second default renderer |
-| PyMuPDF + a Python GUI | Broad PDF manipulation/rendering facilities | AGPL or commercial licensing conflicts with the chosen default licensing direction | Do not add casually; revisit only with an explicit licensing decision [S16] |
-| Fork native GTK pdfpc | Existing presenter features and documented Windows build route | GPL implementation, Vala/GTK dependency stack, different UI | Valid if keeping GPL, not the proposed independent permissive app [S17] |
+- **Session/controller:** physical page index, notes source, timer, blanking,
+  display selection, document generation and navigation commands.
+- **PresenterView:** paint the current/next images, timer and thumbnail selection;
+  compose a text area for notes and limited controls when useful. Do not add chrome
+  just because standard widgets are available.
+- **AudienceView:** paint only the slide and explicitly enabled overlays. Never
+  reuse a presenter component that can expose notes or dialogs to the audience.
+- **PDF service:** Qt PDF's document/page renderer produces QImages. Use pypdf for
+  attachments and note annotations where the selected Qt API lacks access. Avoid
+  parsing PDF bytes independently throughout the UI. Treat differences between the
+  two libraries' page/rotation/crop interpretations as an integration test concern.
+- **Domain logic:** independently authored notes validation, source selection,
+  navigation and timer rules, testable without opening a window.
 
-For PDF-only data handling, pypdf is not a raster renderer; it complements a renderer.
-pypdf documents attachment enumeration and duplicate filenames. pypdfium2 wraps
-PDFium and ships its own dependency notices. Neither provides a presenter UI.
-[S14, S18]
+Keep PDF rasterization outside paintEvent. Request images through the supported
+queued renderer, then update the relevant widget. Tag requests/results with
+(document generation, physical page, size) so old results cannot overwrite a new
+page. A page turn during rendering must not freeze input. Use bounded nearby-page
+and thumbnail caches; a 3840×2160 RGBA image alone is about 31.6 MiB.
 
-### Why React, and why not a Python backend?
+Model pointer, ink and crop transforms explicitly in PDF/page coordinates and
+convert to widget coordinates at drawing/hit-test boundaries. Make one-screen
+rehearsal useful. Handle unplugging a display and negative/mixed-DPI screen geometry.
+Do not equate support for two windows with reliable projector behavior.
 
-React is optional, not a PDF dependency. It is recommended for maintaining
-presenter controls, notes, dialogs and accessible UI as the app grows. Canvas
-rendering stays outside frequent React reconciliation. A small TypeScript-only UI
-would also be viable; do not add Redux or a second state framework initially.
+Use a monotonic timer. On reload, validate the new document before replacing the
+old session; preserve the current presentation on failure. Define whether elapsed
+time and ink survive reload, then test that contract.
 
-There is no operation in the first release that requires Python. A Python service
-would add a runtime, process lifecycle, IPC and packaging work without a clear
-benefit. Reimplement the small notes format reader in TypeScript from the format
-requirements and new tests. Do not embed the GPL parser as a sidecar workaround.
+For packaging, evaluate `pyside6-deploy` and PyInstaller with the actual selected
+modules. Package a private interpreter and native libraries; do not reproduce the
+old wrapper's reliance on `/usr/bin/python3`. The latest PySide wheel observed
+(6.12.0) targets macOS 14+ and Python >=3.10,<3.16. Select the supported OS baseline
+before pinning a version. That metadata observation is not a validated lockfile.
+[S21–S23, S28]
 
-### Packaging tooling choice
+### Native Rust alternative
 
-Start with **Electron Forge's TypeScript + webpack template** and add React. Forge's
-Vite plugin documentation currently labels that integration experimental; the
-recommendation favors fewer build-system changes during the first release. [S19–S20]
-If the maintainer prefers Vite, pin it and record that choice after a packaged-app
-test, not just a successful development-server launch.
+Use egui/eframe for the two native viewports, pdfium-render for rendering and
+attachment/annotation inspection, serde_json for new notes parsing, and Instant
+for timing. One worker should own PDFium operations initially; review its actual
+thread-safety contract rather than assuming separate documents allow parallel calls.
 
-For a Qt alternative, evaluate Qt's own `pyside6-deploy` (Nuitka) first and PyInstaller
-as another option. Qt's PyInstaller page contains a warning explicitly dated March
-2021, so that text is not reliable evidence that current PyInstaller cannot package
-Qt 6. Verify the selected modern versions directly. [S21–S23]
+Use deferred viewports where appropriate, reuse rendered textures, and repaint
+only for input, completed rendering and timer ticks. Bundle/test fonts for Chinese
+notes separately from embedded fonts in the PDF. Ship a pinned PDFium DLL/dylib
+and load it from application resources. The bindings do not include PDFium, and
+PDFium is a C++ dependency, so this would not be an entirely pure-Rust program.
+[S34–S35]
 
-## 5. Proposed application architecture
+Iced can use an equivalent renderer/service and state-update model with its canvas
+and multiple-window facilities. Do not assume a third-party camera/video widget
+has the same coverage as Qt Multimedia; prototype any required media functionality.
 
-Use two distinct native windows and an explicit application model. Start with one
-open deck per process; document that limit rather than building multi-document
-session management in the first version.
-
-```mermaid
-flowchart TD
-    Files[Local PDF and optional notes] --> Main[Main process: files, session, displays]
-    Main -->|Presenter state and PDF access| Presenter[Presenter renderer]
-    Main -->|Page, blanking and PDF access| Audience[Audience renderer]
-    Presenter -->|Validated actions| Main
-    Presenter --> PW[PDF.js worker and bounded render cache]
-    Audience --> AW[PDF.js worker and bounded render cache]
-    Presenter --> Notes[Notes and controls]
-    Audience --> Slide[Slide canvas only]
-```
-
-### Ownership
-
-- **Main process:** selected file identity, read access, session generation,
-  navigation actions, timer state, display selection, window lifecycle and reload.
-  Keep filesystem access out of renderer JavaScript.
-- **Presenter renderer:** current/next thumbnails, notes, timer, navigation controls,
-  display picker and status. Parse/display notes here or in its dedicated worker.
-- **Audience renderer:** slide and optional blanking/pointer overlay only. Never
-  share a UI component that can suddenly show the presenter layout on this window.
-- **PDF layer:** a small interface around PDF.js so an implementation can be
-  replaced if the prototype fails. Do not invent a large plugin framework.
-- **Pure domain modules:** physical-page mapping, note validation, source selection,
-  timer transitions and commands. These should be testable without Electron.
-
-Suggested new-repository layout, not files implemented in this repository:
-
-```text
-src/main/            # session, displays, file access, application lifecycle
-src/preload/         # narrow typed IPC bridge
-src/domain/          # notes, navigation, timer; no OS or UI imports
-src/pdf/             # PDF.js loading, rendering, metadata adapter
-src/renderer/        # presenter and audience entry points, components, styles
-tests/fixtures/     # newly authored PDFs and notes with provenance
-scripts/            # doctor, install-local, release checks
-docs/               # architecture, compatibility, release evidence
-```
-
-Electron's `screen` API enumerates displays and reports display changes. Its
-BrowserWindow API controls placement and fullscreen. Those APIs make this design
-possible; they do not establish how well a particular projector/Spaces configuration
-will behave. Persist a preference with a fallback, not an assumption that display
-index 1 always means the projector. [S5–S6]
-
-### State and rendering invariants
-
-- Store page identity internally as zero-based physical page index. Adapt to
-  PDF.js's one-based page API at one boundary. Logical page labels are display text.
-- Every open/reload increments a document generation. Every render result carries
-  that generation and its page index; discard stale results after rapid navigation.
-- Never paint into the same canvas concurrently. Cancel obsolete render tasks and
-  swap in a completed surface. Keep the audience on the last completed page until
-  the selected new page is ready; show pending status to the presenter.
-- On reload, open and validate a complete new document before swapping generations.
-  If the replacement file is incomplete or corrupt, retain the old presentation.
-  Clamp the current physical page if the deck becomes shorter.
-- Use viewport size and device-pixel ratio for rendering. Prefetch only nearby pages
-  and bound the cache by estimated bytes. A 3840×2160 RGBA bitmap alone is about
-  31.6 MiB; caching hundreds of full-size pages is unacceptable.
-- Each renderer may initially have its own PDF.js document/worker for simplicity.
-  Measure duplicated memory before introducing shared bitmap transport. Do not
-  claim that sharing a JavaScript object between processes is free.
-- Use a monotonic clock for elapsed time. UI refresh frequency does not determine
-  elapsed time. Define pause/resume, sleep/wake and reload behavior in tests.
-- When a display disappears, leave fullscreen safely and return controls to a
-  visible screen. A single-display machine remains useful for rehearsal.
-
-PDF.js supplies page rendering, annotations, attachment and document APIs, but
-exact method signatures must be checked against the pinned release. The cited API
-pages are draft documentation and can move ahead of a packaged version. [S7–S8]
-
-### Local-content boundaries
-
-Use `contextIsolation: true`, renderer sandboxing, and no Node integration in
-renderers. Expose a typed allowlist of actions, not generic filesystem or shell
-execution. Validate the sender and payload of each privileged IPC operation. Load
-packaged UI only. Notes are plain text, never executable HTML. External links open
-only after an intentional user action under a defined URL policy. These choices
-follow Electron's guidance and are relevant because PDFs and notes are input files.
-[S9]
-
-Do not enable arbitrary PDF JavaScript or automatically run embedded files. A
-future media feature must not turn a PDF attachment into a general executable.
-Treat byte/count/time limits as application controls, not proof that the underlying
-PDF parser cannot allocate memory during decompression. Worker cancellation and
-failure recovery need actual tests with malformed inputs.
-
-Keep notes out of audience IPC projections and visual components. The original PDF
-may itself contain attachments/annotations, so this separation is about preventing
-accidental presentation disclosure, not hiding data from someone with the PDF.
+All implementations must retain original PDF/notes files, avoid executing embedded
+PDF scripts or files automatically, keep notes plain text initially, and treat
+parser byte/time limits as controls rather than guarantees about native allocations.
 
 ## 6. Product scope and notes compatibility
 
@@ -370,7 +255,7 @@ Recommended compatibility policy:
 - Existing PDF text annotations can take precedence on their pages. Extract note
   text without showing annotation popups or comment icons on the audience view.
 - When several embedded candidates exist, use a deterministic documented order and
-  expose the chosen source in presenter diagnostics. PDF.js may not preserve the
+  expose the chosen source in presenter diagnostics. A different PDF library may not preserve the
   same ordering as Apple's extraction; exact source-selection parity needs fixtures.
 - Out-of-range indices cannot repair a stale PDF/notes pairing. Show a useful
   presenter diagnostic and recommend exporting both together.
@@ -395,49 +280,32 @@ of complete `.pdfpc` compatibility.
 | Automatic file watching | Must survive atomic replacement, partial writes and bursts; explicit reload should be reliable first |
 | Linux, Windows ARM, remote control, cloud sync | Outside the currently requested platform and sharing scope |
 
-## 7. Prototype gate and staged implementation
+## 7. Prototype and implementation gates
 
-### Phase 0 — evidence before commitment
+**Start with Qt, given the neutral language preference.** Build a small disposable
+spike proving two windows, PDF rendering, Chinese notes, display placement,
+fullscreen, reload and a packaged offline launch on Windows and macOS. Use new
+synthetic fixtures and user-approved real PDFs. Record actual versions, hardware,
+rendering behavior, startup, package size and memory before proposing performance
+budgets. No toolkit has been benchmarked in this survey.
 
-In the **new** repository, build the smallest Electron/PDF.js spike that:
+If Qt has a concrete blocker or unacceptable measured cost, run the same small
+spike with egui. Do not build three full apps merely to select a toolkit. Iced is a
+credible reserve option, not a necessary third prototype without a reason.
 
-- Opens two windows, renders a real PDF page in each, selects a monitor, and enters
-  and leaves fullscreen on Windows and macOS.
-- Displays independently authored Chinese/math/vector/image fixtures without network
-  access. Includes an embedded notes fixture and a sidecar fixture.
-- Renders the next page without blocking controls and discards an obsolete render
-  when rapidly navigating or reloading.
-- Produces a packaged application that starts on a machine without development
-  tools. Confirm PDF.js workers, fonts/CMaps and any required WASM assets are bundled.
-- Records package size, startup, page-render times, memory and exact runtime versions.
+After the gate:
 
-If a blocker appears, compare the **same fixtures and tasks** in PySide6/Qt PDF or
-Tauri before changing the decision. A tiny proof is enough; do not build three full
-applications. Report what was observed and which acceptance checks remain pending.
+1. Implement the core domain behavior, presenter/audience views, timer, notes and
+   safe reload; add behavioral tests as each feature is implemented.
+2. Produce locked, reproducible native builds, a diagnosis command and a per-user
+   installer; validate updates/uninstall without changing unrelated files/settings.
+3. Add ink, camera, embedded media or animation only when requested, each with its
+   own feature/license review and two-platform tests. None is automatically provided
+   by changing the PDF renderer.
 
-### Phase 1 — useful presenter
-
-Implement the independent domain layer, two windows, navigation, notes precedence,
-timer and explicit reload. Add unit/integration checks as those behaviors are
-implemented. Include a first-run display picker and readable keyboard help.
-
-### Phase 2 — dependable packages and installation
-
-Create reproducible native builds and CI on each supported OS. Commit lockfiles,
-runtime version constraints, packaging configuration and fixture provenance. Add
-`doctor` and installation scripts. Test upgrading an existing app without deleting
-preferences or changing the default PDF handler.
-
-### Phase 3 — only justified additional features
-
-Collect actual group feedback, then add pointer/ink, crop layouts, media or camera
-one feature at a time. Each feature needs a dependency/license review and platform
-acceptance cases. Do not promise full Présentation feature parity as part of phase 1.
-
-No calendar estimate is attached: prototype results, feature scope, access to Windows
-hardware and manual testing dominate the uncertainty. Agents can generate code and
-run automation, but they cannot establish physical projector reliability without
-the appropriate test environment.
+Agents can implement and automate this, but physical display validation requires
+appropriate hardware. Do not attach a calendar estimate until the spike resolves
+platform, PDF and packaging risks.
 
 ## 8. Validation matrix and release criteria
 
@@ -459,129 +327,69 @@ and no visible blank-frame flash on a cached page turn. Record hardware, resolut
 PDF corpus and measurement method. Establish practical startup/memory/package-size
 budgets after the spike instead of selecting attractive but unsupported numbers.
 
-Use unit tests for pure state/data behavior and a small Electron automation suite
-for real windows, screenshots, reload and packaging smoke tests. Playwright's
-Electron support is explicitly experimental, so pin it and keep critical test
-logic separate from that adapter. Virtual displays and CI screenshots do not replace
-physical-monitor testing. [S24]
+Use unit tests for pure state/data behavior, native GUI integration checks for real
+windows/screenshots, and packaged-app smoke tests. For Qt, use Qt Test or pytest-qt
+with a pinned version; do not substitute a widget import test for real launch tests.
+Virtual displays and CI screenshots do not replace physical-monitor testing.
 
-## 9. Agent-oriented installation design for the future app
+## 9. Agent installation and handoff
 
-The desired user request is:
+The desired future user prompt is “Install https://github.com/OWNER/NEW-APP,
+following its README and AGENTS.md, and verify it.” That future app is not present
+in this repository. This repository's installer installs the existing GPL Mac
+wrapper only.
 
-> Install https://github.com/OWNER/NEW-APP on this computer, following its README
-> and AGENTS.md, and verify that it opens a sample presentation.
+The new app's agent runbook should detect supported OS/architecture, prefer a
+versioned release artifact with a checksum, and otherwise build with pinned tools
+and a lockfile in an unused checkout. Preserve local changes, install per-user,
+report actual paths/versions and distinguish automated checks from physical-screen
+checks. Students using prebuilt releases need neither Python nor Rust installed.
+Build and test on each target OS; do not claim cross-platform success from one host.
 
-That repository does not exist as part of this proposal. The current repository's
-installation command installs the GPL Mac wrapper only.
+No framework removes OS approval requirements. Local builds do not guarantee a
+Gatekeeper exemption; unsigned downloads and managed computers can require user
+or IT action. Never disable protections to satisfy a one-command-install promise.
+[Apple's guidance](https://support.apple.com/en-us/102445).
 
-For the new app, make the agent runbook deterministic:
+Suggested prompt for the implementing agent:
 
-1. Detect OS/architecture and check the declared support matrix.
-2. Prefer a matching versioned release artifact and its checksum when available.
-3. Otherwise clone to an unused directory, use the pinned Node/toolchain version,
-   install from the lockfile, test, package and install per-user. Never overwrite
-   an edited checkout to simplify installation.
-4. Verify executable identity/version and the included synthetic fixture. Distinguish
-   dependency checks, automated GUI checks and manual dual-screen checks.
-5. Print installed paths, update/uninstall steps, logs and any user-action blockers.
+> Implement an independent Windows/macOS PDF presenter in a new repository, using
+> this proposal as functional requirements. Do not copy or translate the existing
+> GPL application, wrapper, tests or artwork. There is no Rust preference; start
+> with PySide6/Qt Widgets custom painting and the prototype gate. Keep the UI as
+> restrained as Présentation: current/next slides, notes, timer, thumbnails and a
+> separate audience screen. Tauri and Electron are excluded. Use original fixtures
+> and visual design. Confirm the new app name/license, record real prototype
+> results, and reconsider egui only for a concrete advantage or Qt blocker.
+> Preserve the existing working Mac app. Deliver native packages, tests and an
+> honest agent installation runbook. Identify untested platforms and hardware.
 
-Use a local installer written in Node so the runtime already required to build can
-also install; no Python dependency is needed. Proposed commands such as `npm run
-doctor`, `npm run install:local`, and `npm run smoke` must be implemented and tested
-before appearing as working instructions in that project's README.
+## 10. Sources and evidence limits
 
-On macOS, local builds need no paid Apple account, but source installation is **not
-a guaranteed Gatekeeper bypass**. Downloaded applications may need the user's
-Open Anyway approval; signing/notarization can be added for public releases. On
-Windows, unsigned packages may likewise encounter OS or institutional policy.
-An agent must not promise zero user interaction or disable system protections to
-meet an installation slogan. [S25]
+This is source inspection plus documentation/repository research, not a working
+prototype, formal clean-room process, measured popularity trend or complete
+third-party license audit. Unversioned docs can move ahead of installed libraries:
+the unversioned Qt PDF URLs redirected to development snapshots during research.
+Use exact-version docs and package contents for implementation decisions.
 
-Build macOS and Windows artifacts on their own OS runners, test them there, and
-state the architecture explicitly. Start with a zipped `.app` and a Windows ZIP of
-the packaged directory; conventional installers can follow. Preserve Electron's
-third-party license files in releases. Package/runtime binaries belong in releases,
-not normal Git source history. [S26]
-
-## 10. Version observations and documentation pitfalls
-
-These were metadata observations during research, not a validated lockfile or
-recommended automatic upgrade policy:
-
-| Package | Registry version observed | Relevant metadata |
-|---|---|---|
-| Electron | 45.0.0 | MIT; npm package requires Node >=22.12.0 |
-| pdfjs-dist | 6.4.299 | Apache-2.0; Node >=22.13.0 or >=24 |
-| Electron Forge CLI | 8.0.1 | MIT; Node >=22.13.0 |
-| TypeScript | 7.0.2 | Apache-2.0 |
-| React | 19.3.1 | MIT |
-| Tauri JS API | 2.12.4 | MIT OR Apache-2.0 |
-| PySide6 | 6.12.0 | Python >=3.10,<3.16; observed Mac wheel targets macOS 14+; Windows x64/ARM wheels listed |
-| pypdf | 6.21.2 | BSD-3-Clause; Python >=3.9 |
-| pypdfium2 | 5.14.0 | Binding and bundled dependency licenses; Python >=3.6; Mac wheels observed for macOS 13+ |
-| PyInstaller | 6.22.3 | GPL with a distribution exception; do not confuse its tooling license with a requirement to GPL every packaged app |
-
-Registry sources: npm package metadata and PyPI JSON endpoints [S27–S28]. Resolve
-and test a mutually compatible set in phase 0; a package's `engines` declaration
-does not establish every OS minimum or plugin compatibility. Pin an actively
-supported Node release satisfying all requirements. Do not fetch `latest` on every
-student install.
-
-Two research pitfalls worth retaining:
-
-- The unversioned Qt PDF licensing URL redirected to a development snapshot during
-  this survey. The cited Qt 6.8 licensing page is a stable historical reference,
-  not proof of every later module's terms. Inspect the exact wheel/source release.
-- Qt's PyInstaller documentation includes an old Qt 6 support warning. Its date
-  matters; do not repeat that warning as a current finding without verification.
-
-## 11. Handoff prompt for Opus
-
-> Design and implement an independent Windows/macOS PDF presenter in a new
-> repository. Read this proposal for requirements and research; do not copy,
-> translate, or import Présentation or the GPL wrapper implementation/tests/assets.
-> Use an original UI and new synthetic fixtures. Confirm the new app name and
-> license with the maintainer. Start with the Electron + TypeScript + React +
-> PDF.js prototype gate and record its actual results before building the full UI.
-> Keep the existing Mac app untouched. Deliver the core presenter scope,
-> reproducible native packages, and an agent-readable installation runbook.
-> Distinguish implemented features, tested platforms, untested hardware and
-> unresolved blockers. Do not claim Windows or dual-monitor validation without
-> running those checks. If a gate fails, explain the evidence and evaluate the
-> named alternatives on the same tasks rather than silently expanding scope.
-
-## 12. Primary-source register
-
-All links were consulted during the survey unless specifically identified as a
-registry endpoint queried programmatically. This section records evidence, not
-endorsement. Versioned package contents remain the authority for an actual release.
-
-- **S1:** [Présentation project, license and features](https://iihm.imag.fr/blanch/software/osx-presentation/).
-- **S2:** [US Copyright Office Circular 61: computer programs](https://www.copyright.gov/circs/circ61.pdf).
-- **S3:** [Electron license](https://github.com/electron/electron/blob/main/LICENSE).
-- **S4:** [PDF.js license](https://github.com/mozilla/pdf.js/blob/master/LICENSE).
-- **S5:** [Electron screen API](https://www.electronjs.org/docs/latest/api/screen).
-- **S6:** [Electron BrowserWindow API](https://www.electronjs.org/docs/latest/api/browser-window).
-- **S7:** [PDF.js document API](https://mozilla.github.io/pdf.js/api/draft/module-pdfjsLib-PDFDocumentProxy.html).
-- **S8:** [PDF.js page API](https://mozilla.github.io/pdf.js/api/draft/module-pdfjsLib-PDFPageProxy.html).
-- **S9:** [Electron security guidance](https://www.electronjs.org/docs/latest/tutorial/security).
-- **S10:** [Qt queued PDF page renderer](https://doc.qt.io/qt-6.8/qpdfpagerenderer.html).
+- **S1:** [Présentation project/license/features](https://iihm.imag.fr/blanch/software/osx-presentation/).
+- **S2:** [US Copyright Office Circular 61](https://www.copyright.gov/circs/circ61.pdf).
 - **S11:** [Qt PDF 6.8 licensing](https://doc.qt.io/qt-6.8/qtpdf-licensing.html).
 - **S12:** [Qt for Python licenses](https://doc.qt.io/qtforpython-6/licenses.html).
-- **S13:** [Qt's LGPL obligations guidance](https://www.qt.io/development/open-source-lgpl-obligations).
-- **S14:** [pypdf attachment API](https://pypdf.readthedocs.io/en/stable/user/handle-attachments.html).
-- **S15:** [Tauri webview differences](https://v2.tauri.app/reference/webview-versions/) and [window customization](https://tauri.app/learn/window-customization/).
-- **S16:** [PyMuPDF licensing](https://pymupdf.readthedocs.io/en/latest/about.html).
-- **S17:** [GTK pdfpc project and Windows compilation](https://github.com/pdfpc/pdfpc/).
-- **S18:** [pypdfium2 project and dependencies](https://github.com/pypdfium2-team/pypdfium2).
-- **S19:** [Forge TypeScript/webpack template](https://www.electronforge.io/templates/typescript-+-webpack-template).
-- **S20:** [Forge Vite integration status](https://www.electronforge.io/config/plugins/vite).
-- **S21:** [Qt deployment options](https://doc.qt.io/qtforpython-6/deployment/index.html).
+- **S13:** [Qt LGPL obligations](https://www.qt.io/development/open-source-lgpl-obligations).
+- **S14:** [pypdf attachments](https://pypdf.readthedocs.io/en/stable/user/handle-attachments.html).
+- **S21:** [Qt for Python deployment](https://doc.qt.io/qtforpython-6/deployment/index.html).
 - **S22:** [pyside6-deploy](https://doc.qt.io/qtforpython-6/deployment/deployment-pyside6-deploy.html).
-- **S23:** [Qt's dated PyInstaller page](https://doc.qt.io/qtforpython-6/deployment/deployment-pyinstaller.html) and [PyInstaller operation](https://pyinstaller.org/en/stable/operating-mode.html).
-- **S24:** [Playwright Electron automation and experimental status](https://playwright.dev/docs/api/class-electron).
-- **S25:** [Apple opening/notarization guidance](https://support.apple.com/en-us/102445).
-- **S26:** [Electron application distribution](https://www.electronjs.org/docs/latest/tutorial/application-distribution).
-- **S27:** npm registry metadata: [Electron](https://registry.npmjs.org/electron/latest), [PDF.js](https://registry.npmjs.org/pdfjs-dist/latest), [Forge](https://registry.npmjs.org/@electron-forge/cli/latest), [TypeScript](https://registry.npmjs.org/typescript/latest), [React](https://registry.npmjs.org/react/latest), [Tauri API](https://registry.npmjs.org/@tauri-apps/api/latest).
-- **S28:** PyPI metadata: [PySide6](https://pypi.org/pypi/PySide6/json), [pypdf](https://pypi.org/pypi/pypdf/json), [pypdfium2](https://pypi.org/pypi/pypdfium2/json), [PyInstaller](https://pypi.org/pypi/pyinstaller/json).
+- **S23:** [PyInstaller operation](https://pyinstaller.org/en/stable/operating-mode.html). Qt's separate PyInstaller page contains a warning dated March 2021; do not assume it describes current support.
+- **S28:** [PySide6 registry metadata](https://pypi.org/pypi/PySide6/json), queried during research; resolve and test a release-specific dependency set.
+- **S29:** [QPainter](https://doc.qt.io/qt-6/qpainter.html).
+- **S30:** [QPdfPageRenderer, versioned documentation](https://doc.qt.io/qt-6.8/qpdfpagerenderer.html).
+- **S31:** [QMediaCaptureSession](https://doc.qt.io/qt-6/qmediacapturesession.html).
+- **S32:** [Iced interactive canvas](https://docs.rs/iced/latest/iced/widget/canvas/index.html).
+- **S33:** [egui 0.37 release/breaking changes](https://github.com/emilk/egui/releases/tag/0.37.0).
+- **S34:** [egui native viewports](https://docs.rs/egui/latest/egui/viewport/index.html); match documentation to the chosen version.
+- **S35:** [pdfium-render](https://github.com/ajrcarey/pdfium-render) and [license](https://github.com/ajrcarey/pdfium-render/blob/master/LICENSE.md).
+
+Maintenance/adoption evidence and its retrieval method are recorded in section 3.
+Original app source was inspected locally at the hash recorded in section 2; no
+upstream source or private presentation artifacts are added to this repository.

@@ -7,6 +7,70 @@ should be developed independently in a new repository. **PageCue** is a suggeste
 name, not an approved name or a checked trademark/domain. Other brainstormed names
 were Lectern, Decklight, Talkleaf, and Slidecue.
 
+## Updated priorities: minimalist UI and native Rust options
+
+The maintainer subsequently clarified that Présentation's minimalist interface is
+the preferred design direction and questioned the weight of a browser-based stack.
+They also asked to consider Rust. **This changes the weighting of the original
+Electron recommendation below. No new stack has been selected or prototyped.**
+
+Current qualitative ranking for this scope:
+
+| Rank | Stack | Reason and main tradeoff |
+|---|---|---|
+| 1 | PySide6 Widgets + Qt PDF + pypdf | Lowest implementation risk for a small desktop presenter; mature window/widget tools. Ships Python/Qt and requires the applicable LGPL obligations. |
+| 2 | Rust + egui/eframe + pdfium-render | Strong native Rust candidate for a compact utility UI, without a Python interpreter or browser runtime. More integration, PDFium packaging and platform QA work. |
+| 3 | Rust + Iced + pdfium-render | Declarative Rust UI with a structured state/update model; worth considering for a more elaborate application. My judgment is that egui is the simpler initial fit for this custom presenter canvas. |
+| 4 | Tauri + PDF.js | Rust host and web UI using the OS webview; an option if web technologies are desired, but adds Rust/JS boundaries and differing browser engines. |
+| 5 | Electron + PDF.js | Can look just as minimal, but its bundled runtime is less aligned with the clarified footprint preference. |
+
+This is a ranking of project fit, not a benchmark of binary size, speed or memory.
+The first two are the actual shortlist: **Qt for the quickest dependable release;
+egui for a native Rust engineering direction.** A Rust implementation is not
+automatically smaller or more efficient; its renderer, feature selection, cache
+and repaint scheduling matter. Native egui windows are not AppKit/WinUI widgets;
+the controls are drawn by egui, so appearance needs deliberate styling.
+
+### Concrete Rust design to prototype
+
+- Use `eframe` for desktop lifecycle and `egui` for a presenter viewport plus a
+  separate audience viewport. Native eframe supports multiple viewports. Prefer
+  a deferred audience viewport so the presenter's timer does not force an audience
+  repaint. Test actual monitor placement/fullscreen/DPI behavior on both OSes.
+  [egui viewport documentation](https://docs.rs/egui/latest/egui/viewport/index.html)
+- Use `pdfium-render` for PDF pages, attachment/annotation inspection and rendered
+  bitmaps. It is a Rust wrapper around the C++ PDFium engine, not a pure-Rust PDF
+  implementation. It does not bundle PDFium: ship a pinned compatible DLL/dylib
+  with each release and load it from the app resources, not an arbitrary working
+  directory. [pdfium-render project](https://github.com/ajrcarey/pdfium-render)
+- Give one worker ownership of PDFium operations initially and communicate using
+  bounded requests/results. Audit the selected bindings' threading requirements;
+  do not assume independent PDF documents make native calls thread-safe.
+- Render on page/scale changes, cache a bounded set of bitmaps/textures, and reuse
+  them during UI redraws. Request repaint for input, completed rendering and timer
+  ticks; do not rerasterize a PDF every frame or run a perpetual animation loop.
+- Read `.pdfpc` using `serde_json` and newly authored format-validation code. Use
+  `std::time::Instant` for the timer. Add a native file-dialog integration only as
+  needed. Start without a webview, scripting runtime, or large async framework.
+- Bundle appropriately licensed CJK UI fonts or a tested font-loading solution:
+  PDF rendering and Chinese speaker-note rendering are separate font problems.
+- Before expanding features, prove PDF rendering, Chinese notes, two windows,
+  reload cancellation and a packaged application on Mac and Windows. Camera,
+  movies and LaTeX animations remain separate milestones.
+
+egui and pdfium-render offer permissive licensing choices; preserve all selected
+crate, font and bundled PDFium dependency notices. This does not authorize copying
+the old GPL application. See [egui's MIT license](https://github.com/emilk/egui/blob/main/LICENSE-MIT)
+and [pdfium-render's license](https://github.com/ajrcarey/pdfium-render/blob/master/LICENSE.md).
+For the alternative, [Iced](https://github.com/iced-rs/iced) provides an Elm-inspired
+cross-platform Rust GUI model.
+
+**Handoff adjustment:** Sections 5, 7 and 11 below describe the earlier Electron
+design and are now a comparison/reference architecture, not an instruction to
+implement Electron. Confirm Qt versus native Rust with the maintainer before
+starting that prototype. Keep the existing functional requirements, independent
+implementation boundaries and platform acceptance tests whichever stack is chosen.
+
 ## 1. Recommendation and decision context
 
 **Recommended starting stack: Electron + TypeScript + React + PDF.js, packaged
